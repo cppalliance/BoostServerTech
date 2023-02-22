@@ -1,0 +1,21 @@
+{
+  "name": "boost-server-tech",
+  "version-semver": "0.1.0",
+  "dependencies": [
+    "boost-beast",
+    {
+      "name": "zlib",
+      "version>=": "1.2.12"
+    },
+    {
+      "name": "openssl",
+      "version>=": "3.0.5"
+    },
+    {
+      "name": "fmt",
+      "version>=": "9.1.0#1"
+    }
+  ],
+  "default-features": [],
+  "builtin-baseline": "93895b28ea7bc8cda10f156c5d336f3fc070f8b1"
+}
