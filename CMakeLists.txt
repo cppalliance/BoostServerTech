@@ -2,6 +2,10 @@
 
 cmake_minimum_required(VERSION 3.14)
 
+if(NOT DEFINED BOOST_ROOT)
+    set(BOOST_ROOT $ENV{BOOST_ROOT})
+endif()
+
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(
             FATAL_ERROR
@@ -27,51 +31,74 @@ string(
 
 set(BOOST_SERVER_TECH_IGNORE_ME ${CMAKE_C_COMPILER})
 
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 # ---- Declare library ----
 
-add_library(
-        boost_server_tech_lib OBJECT
-        source/lib.cpp
-)
-
-target_include_directories(
-        boost_server_tech_lib
-        PUBLIC
-        "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/source>"
-)
-
-target_compile_features(boost_server_tech_lib PUBLIC cxx_std_14)
+#add_library(
+#        boost_server_tech_lib OBJECT
+#        source/lib.cpp
+#)
+#
+#target_include_directories(
+#        boost_server_tech_lib
+#        PUBLIC
+#        "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/source>"
+#)
+#
+#target_compile_features(boost_server_tech_lib PUBLIC cxx_std_14)
 
 # ---- Dependencies ----
 
-find_package(Boost REQUIRED)
-target_link_libraries(boost_server_tech_lib PUBLIC Boost::boost)
+set(CMAKE_FOLDER Dependencies)
+set(BOOST_INCLUDE_LIBRARIES
+    buffers
+    http_proto
+    http_io
+    )
+add_subdirectory(${BOOST_ROOT} bin64/boost)
+unset(CMAKE_FOLDER)
+
+#target_link_libraries(boost_server_tech_lib PUBLIC Boost::headers)
 
 find_package(fmt REQUIRED)
-target_link_libraries(boost_server_tech_lib PUBLIC fmt::fmt)
-
 find_package(OpenSSL REQUIRED)
-target_link_libraries(boost_server_tech_lib PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-
 find_package(ZLIB REQUIRED)
-target_link_libraries(boost_server_tech_lib PUBLIC ZLIB::ZLIB)
 
 # ---- Executable ----
 
-add_executable(BoostServerTech_exe source/main.cpp)
-add_executable(BoostServerTech::exe ALIAS BoostServerTech_exe)
+add_executable(BoostServerTech source/main.cpp)
 
-set_property(TARGET BoostServerTech_exe PROPERTY OUTPUT_NAME BoostServerTech)
+target_compile_definitions(
+    BoostServerTech
+    PUBLIC
+    )
 
-target_compile_features(BoostServerTech_exe PRIVATE cxx_std_14)
+set_property(TARGET BoostServerTech PROPERTY OUTPUT_NAME BoostServerTech)
 
-target_link_libraries(BoostServerTech_exe PRIVATE boost_server_tech_lib)
+target_compile_features(BoostServerTech PRIVATE cxx_std_14)
+
+target_link_libraries(
+    BoostServerTech
+    PUBLIC
+    fmt::fmt
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    ZLIB::ZLIB
+    PRIVATE
+    #boost_server_tech_lib
+    Boost::asio
+    Boost::headers
+    Boost::buffers
+    Boost::http_proto
+    Boost::http_io
+    )
 
 # ---- Install rules ----
 
 if(NOT CMAKE_SKIP_INSTALL_RULES)
     install(
-            TARGETS BoostServerTech_exe
+            TARGETS BoostServerTech
             RUNTIME COMPONENT BoostServerTech_Runtime
     )
 
@@ -82,8 +109,6 @@ endif()
 
 # ---- Developer targets ----
 
-include(cmake/folders.cmake)
-
 #include(CTest)
 #if(BUILD_TESTING)
 #    add_subdirectory(test)
@@ -93,5 +118,3 @@ option(ENABLE_COVERAGE "Enable coverage support separate from CTest's" OFF)
 if(ENABLE_COVERAGE)
     include(cmake/coverage.cmake)
 endif()
-
-add_folders(Project)
