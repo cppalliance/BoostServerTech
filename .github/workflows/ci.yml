@@ -1,0 +1,140 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches:
+    - develop
+
+  pull_request:
+    branches:
+    - develop
+
+concurrency:
+  group: ${{format('{0}:{1}', github.repository, github.ref)}}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+
+    strategy:
+      matrix:
+        include:
+          - { name: "MSVC 14.3 - C++20", os: windows-2022, cxxstd: 20, cmake_args: -G "Visual Studio 17 2022" -A x64, }
+          - { name: "MSVC 14.3 - C++17", os: windows-2022, cxxstd: 17, cmake_args: -G "Visual Studio 17 2022" -A x64, }
+          - { name: "MSVC 14.2 - C++17", os: windows-2019, cxxstd: 17, cmake_args: -G "Visual Studio 16 2019" -A x64, }
+
+          - { name: "GCC 12 - C++20",    os: ubuntu-22.04, cc: gcc-12, cxx: g++-12, cxxstd: 20, }
+          - { name: "GCC 12 - C++17",    os: ubuntu-22.04, cc: gcc-12, cxx: g++-12, cxxstd: 17, }
+          - { name: "GCC 11 - C++20",    os: ubuntu-22.04, cc: gcc-11, cxx: g++-11, cxxstd: 20, }
+          - { name: "GCC 10 - C++20",    os: ubuntu-22.04, cc: gcc-10, cxx: g++-10, cxxstd: 20, }
+          - { name: "GCC 9  - C++20",    os: ubuntu-22.04, cc: gcc-9,  cxx: g++-9,  cxxstd: 20, install: libboost-all-dev, }
+          - { name: "GCC 8  - C++17",    os: ubuntu-20.04, cc: gcc-8,  cxx: g++-8,  cxxstd: 17, install: g++-8, }
+          - { name: "GCC 7  - C++14",    os: ubuntu-20.04, cc: gcc-7,  cxx: g++-7,  cxxstd: 14, install: g++-7, }
+
+          - { name: "Clang 14 - C++20",  os: ubuntu-22.04, cc: clang-14, cxx: clang++-14, cxxstd: 20, }
+          - { name: "Clang 13 - C++17",  os: ubuntu-22.04, cc: clang-13, cxx: clang++-13, cxxstd: 17, }
+          - { name: "Clang 12 - C++20",  os: ubuntu-22.04, cc: clang-12, cxx: clang++-12, cxxstd: 20, }
+          - { name: "Clang 11 - C++17",  os: ubuntu-20.04, cc: clang-11, cxx: clang++-11, cxxstd: 17, install: clang-11, }
+
+          - { name: "AppleClang 13",     os: macos-12,     cxxstd: 17 }
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Environment
+      id: ctx
+      shell: bash
+      run: |
+        # boost
+        default_branch="${{ (startsWith(github.ref, 'refs/heads/master') && 'master') || 'develop' }}"
+        echo "default_branch=$default_branch" >> $GITHUB_OUTPUT
+        
+        # vcpkg
+        vcpkg_hash="$(git ls-remote https://github.com/microsoft/vcpkg.git master | awk '{ print $1 }')"
+        echo "vcpkg_hash=$vcpkg_hash" >> $GITHUB_OUTPUT
+        triplet="${{ (startsWith(matrix.os, 'windows') && ':x64-windows') || (startsWith(matrix.os, 'ubuntu') && ':x64-linux') || (startsWith(matrix.os, 'macos') && ':x64-osx') || '' }}" 
+        echo "triplet=$triplet" >> $GITHUB_OUTPUT
+        vcpkg_bs_exe="${{ (matrix.os == 'windows-2022' && '.\\vcpkg\\bootstrap-vcpkg.bat') || './vcpkg/bootstrap-vcpkg.sh' }}"
+        echo "vcpkg_bs_exe=$vcpkg_bs_exe" >> $GITHUB_OUTPUT
+        vcpkg_toolchain="${{ 'vcpkg/scripts/buildsystems/vcpkg.cmake' }}"
+        echo "vcpkg_toolchain=$vcpkg_toolchain" >> $GITHUB_OUTPUT
+        
+        # cmake
+        cmake_cc_path="${{ (matrix.cc && format('-D CMAKE_C_COMPILER=/usr/bin/{0}', matrix.cc)) || '' }}"
+        echo "cmake_cc_path=$cmake_cc_path" >> $GITHUB_OUTPUT
+        cmake_cxx_path="${{ (matrix.cxx && format('-D CMAKE_CXX_COMPILER=/usr/bin/{0}', matrix.cxx)) || '' }}"
+        echo "cmake_cxx_path=$cmake_cxx_path" >> $GITHUB_OUTPUT
+
+    # Install packages on ubuntu
+    - name: Apt packages
+      if: ${{ contains( matrix.os, 'ubuntu') && (matrix.install) }}
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ${{ matrix.install }}      
+
+      # attempt to get vcpkg and its packages from the cache before cloning it
+    - name: vcpkg cache
+      id: cache-vcpkg
+      uses: actions/cache@v3
+      with:
+        path: vcpkg
+        key: ${{ runner.os }}-vcpkg-${{ steps.ctx.outputs.vcpkg_hash }}-${{ steps.ctx.outputs.triplet }}
+
+    - name: vcpkg install
+      if: steps.cache-vcpkg.outputs.cache-hit != 'true'
+      run: |
+        git clone https://github.com/microsoft/vcpkg.git -b master vcpkg
+        ${{ steps.ctx.outputs.vcpkg_bs_exe }}
+        cd vcpkg
+        vcpkg install fmt${{ steps.ctx.outputs.triplet }}
+        vcpkg install openssl${{ steps.ctx.outputs.triplet }}
+        vcpkg install zlib${{ steps.ctx.outputs.triplet }}
+
+    # Clone boost
+    - name: Boost Clone
+      uses: ./.github/actions/boost_clone
+      with:
+        boost_dir: boost
+        branch: ${{ steps.ctx.outputs.default_branch }}
+
+    # Patch boost
+    - name: boost.buffers patch
+      uses: ./.github/actions/boost_patch
+      with:
+        name: buffers
+        repo: https://github.com/CppAlliance/buffers.git
+        branch: ${{ steps.ctx.outputs.default_branch }}
+        boost_dir: boost
+
+    - name: boost.http_proto patch
+      uses: ./.github/actions/boost_patch
+      with:
+        name: http_proto
+        repo: https://github.com/CppAlliance/http_proto.git
+        branch: ${{ steps.ctx.outputs.default_branch }}
+        boost_dir: boost
+
+    - name: boost.http_io patch
+      uses: ./.github/actions/boost_patch
+      with:
+        name: http_io
+        repo: https://github.com/CppAlliance/http_io.git
+        branch: ${{ steps.ctx.outputs.default_branch }}
+        boost_dir: boost
+
+    # configure, build, and install with cmake
+    - name: Get CPU cores
+      uses: SimenB/github-actions-cpu-cores@v1
+      id: cpu-cores
+
+    - name: Configure
+      run: cmake -S . -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_TOOLCHAIN_FILE="${{ steps.ctx.outputs.vcpkg_toolchain }}" -D BOOST_ROOT=boost -D CMAKE_CXX_STANDARD=${{ matrix.cxxstd || '14' }} ${{ matrix.cmake_args }} -D CMAKE_INSTALL_PREFIX=.local/usr/ ${{ steps.ctx.outputs.cmake_cc_path }} ${{ steps.ctx.outputs.cmake_cxx_path }}
+
+    - name: Build
+      run: cmake --build build --config Release -j 2
+
+    - name: Install
+      run: cmake --install build --config Release --prefix prefix
