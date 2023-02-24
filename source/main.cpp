@@ -8,8 +8,7 @@ auto main() -> int
     // buffers
     {
         char temp[16];
-        boost::buffers::circular_buffer cb(
-            { temp, sizeof(temp) });
+        boost::buffers::circular_buffer cb( temp, sizeof(temp) );
         cb.prepare(5);
         cb.commit(3);
         cb.data();

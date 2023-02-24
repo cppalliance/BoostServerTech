@@ -1,0 +1,38 @@
+name: 'Boost Clone'
+description: 'This workflow clones the boost source directory, attempting to get it from the cache first'
+inputs:
+  boost_dir:
+    description: 'The boost directory. The default value assumes boost is in-source.'
+    required: false
+    default: 'boost'
+  branch:
+    description: 'Branch of the super-project'
+    required: false
+    default: 'master'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Environment
+      id: ctx
+      shell: bash
+      run: |
+        boost_hash=$(git ls-remote https://github.com/boostorg/boost.git ${{ inputs.branch }} | awk '{ print $1 }')
+        echo "boost_hash=$boost_hash" >> $GITHUB_OUTPUT
+
+    # attempt to get boost from the cache before cloning it
+    - name: boost cache
+      id: cache-boost
+      uses: actions/cache@v3
+      with:
+        path: boost
+        key: ${{ runner.os }}-boost-${{ steps.ctx.outputs.boost_hash }}
+
+    # clone if not found in cache
+    - name: boost clone
+      if: steps.cache-boost.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        git clone https://github.com/boostorg/boost.git -b ${{ inputs.branch }} ${{ inputs.boost_dir }}
+        cd ${{ inputs.boost_dir }}
+        git submodule update --init --recursive
