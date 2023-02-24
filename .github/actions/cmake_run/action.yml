@@ -1,0 +1,105 @@
+name: 'Install dependencies'
+description: 'This workflow installs dependencies from multiple package managers'
+inputs:
+  cmake_exec:
+    description: 'The cmake executable'
+    required: false
+    default: 'cmake'
+  cc:
+    description: 'Path to C compiler.'
+    required: false
+    default: ''
+  cxx:
+    description: 'Path to C++ compiler.'
+    required: false
+    default: ''
+  cxxstd:
+    description: 'List of standards with which cmake will build and test the program.'
+    required: false
+    default: ''
+  source_dir:
+    description: 'Path to the source directory.'
+    required: false
+    default: ''
+  toolchain:
+    description: 'Path to toolchain.'
+    required: false
+    default: ''
+  build-type:
+    description: 'Build type.'
+    required: false
+    default: 'Release'
+  install-prefix:
+    description: 'Path where the library should be installed.'
+    required: false
+    default: '.local/usr'
+  extra-args:
+    description: 'Extra arguments to cmake configure command.'
+    required: false
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: Get CPU cores
+      uses: SimenB/github-actions-cpu-cores@v1
+      id: cpu-cores
+
+    - name: CMake Build C++${{ inputs.cxxstd }}
+      shell: bash
+      working-directory: ${{ inputs.source_dir }}
+      run: |
+        set -xe
+        
+        # cmake args
+        cc=${{ matrix.cc }}
+        if [ "$cc" != "" ]; then
+            if command -v $cc &> /dev/null; then
+              cc="$(which $cc)"
+            elif command -v /usr/bin/$cc &> /dev/null; then
+              cc="/usr/bin/$cc"
+            fi
+            cmake_cc_path_args="-D CMAKE_C_COMPILER=$cc"
+        else
+            cmake_cc_path_args=
+        fi
+        
+        cxx=${{ matrix.cxx }}
+        if [ "$cxx" != "" ]; then
+            if command -v $cxx &> /dev/null; then
+              cxx="$(which $cxx)"
+            elif command -v /usr/bin/$cxx &> /dev/null; then
+              cxx="/usr/bin/$cxx"
+            fi
+            cmake_cxx_path_args="-D CMAKE_CXX_COMPILER=$cxx"
+        else
+            cmake_cxx_path_args=
+        fi
+        
+        cxxstds=${{ inputs.cxxstd }}
+        if [ "$cxxstds" == "" ]; then
+            cxxstds=defaultcxx
+        fi
+        
+        cmake_toolchain=${{ inputs.toolchain }}
+        if [ "$cmake_toolchain" != "" ]; then
+            cmake_toolchain_arg="-D CMAKE_TOOLCHAIN_FILE=$cmake_toolchain"
+        else
+            cmake_toolchain_arg=
+        fi
+        
+        # iterate stds
+        for cxxstd in ${cxxstds//,/ }
+        do
+            echo "==================================> CMAKE: C++$cxxstd"
+            if [ "$cxxstd" == "defaultcxx" ]; then
+                cmake_cxxstd_arg=""
+                build_dir="build"
+            else
+                cmake_cxxstd_arg="-D CMAKE_CXX_STANDARD=$cxxstd"
+                build_dir="build-$cxxstd"
+            fi
+            cmake -S . -B $build_dir -D CMAKE_BUILD_TYPE=${{ inputs.build-type }} $cmake_toolchain_arg $cmake_cxxstd_arg ${{ inputs.extra-args }} -D CMAKE_INSTALL_PREFIX=${{ inputs.install-prefix }} $cmake_cc_path_args $cmake_cxx_path_args
+            cmake --build $build_dir --config ${{ inputs.build-type }} -j ${{ steps.cpu-cores.outputs.count }}
+            cmake --install $build_dir --config ${{ inputs.build-type }} --prefix prefix
+        done
